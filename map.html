@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+	<title>Google Maps with AngularJS</title>
+	<script type='text/javascript' src='http://cdnjs.cloudflare.com/ajax/libs/angular.js/1.1.1/angular.min.js'></script>
+	<script type='text/javascript' src="http://maps.googleapis.com/maps/api/js?key=&extension=.js&libraries=places"></script>
+	<script type='text/javascript' src="infobox.js"></script>
+	<style type='text/css'>
+		#map {
+			height: 700px;
+			width: 900px;
+		}
+
+		.selectCityButton {
+			position: relative;
+			display: block;
+			width: 200px;
+			padding: 10px 35px 10px 15px;
+			font-size: 18px;
+			font-weight: bold;
+			text-decoration: none;
+			color: #ffffff;
+			background: #15C8E0 url(white_arrow.png) no-repeat right center;
+			border:  2px solid #ffffff;
+			border-radius: 10px;
+			box-shadow: rgba(0,0,0,0.3) 0 3px 15px;
+		}
+
+		.selectCityButton::after {
+			position: absolute;
+			z-index: 2;
+			display: block;
+			content: '';
+			top: -24px;
+			left: 110px;
+			width: 0;
+			border: 12px solid transparent;
+			border-bottom-color: #15C8E0;
+		}
+
+		.selectCityButton::before {
+			position: absolute;
+			z-index: 1;
+			display: block;
+			content: '';
+			top: -30px;
+			left: 107px;
+			width: 0;
+			border: 15px solid transparent;
+			border-bottom-color: #ffffff;
+		}
+
+		.selectCityButton span {
+			font-weight: 300;
+			font-style: italic;
+		}
+
+		.infoBox img {
+			display: none;
+		}
+
+		#search_field {
+			font-size: 18px;
+			width: 880px;
+			padding: 5px 10px;
+			outline: none;
+			margin-bottom: 10px;
+		}
+	</style>
+
+
+	<script type='text/javascript'>
+	//<![CDATA[
+
+	angular.module('mapsApp', []).controller('MapCtrl', function ($scope, $timeout) {
+		$scope.title = null;
+		$scope.lat = 40.6700;
+		$scope.lon = -73.9400;
+		$scope.country_selection = false;
+		$scope.zoomChangeRemarkerTimeout = null;
+		$scope.positionChangeRemarkerTimeout = null;
+
+		$scope.map = new google.maps.Map(document.getElementById('map'), {
+			zoom: 8,
+			center: new google.maps.LatLng($scope.lat, $scope.lon), // ny
+			mapTypeId: google.maps.MapTypeId.TERRAIN,
+			disableDefaultUI: true,
+			zoomControl: true,
+			zoomControlOptions: {
+				style: google.maps.ZoomControlStyle.SMALL
+			}
+		});
+		$scope.center_marker = null;
+		$scope.geocoder = new google.maps.Geocoder();
+
+		$scope.infoBox = new InfoBox({
+			disableAutoPan: false,
+			pixelOffset: new google.maps.Size(-125, 25),
+			zIndex: null,
+			boxStyle: {
+				width: "200px"
+			},
+			infoBoxClearance: new google.maps.Size(1, 1),
+			isHidden: true,
+			pane: "floatPane",
+			enableEventPropagation: false
+		});
+
+		$scope.createMapCenterMarker = function(){
+			var center = $scope.map.getCenter();
+			$scope.createMarker({
+				lat: center.lat(),
+				lon: center.lng()
+			});
+		};
+
+		$scope.createMarker = function (data) {
+			if ($scope.marker) $scope.cleanupMarker();
+
+			$scope.marker = new google.maps.Marker({
+				map: $scope.map,
+				icon: {
+					path: google.maps.SymbolPath.CIRCLE,
+					//fillColor: '#15C8E0',
+					fillColor: '#ff0000',
+					fillOpacity: 1,
+					strokeWeight: 2,
+					strokeColor: '#ffffff',
+					//scale: 8
+					scale: 6
+				},
+				position: new google.maps.LatLng(data.lat, data.lon),
+				title: data.title,
+				animation: google.maps.Animation.DROP
+			});
+			
+			$timeout(function(){
+				if (typeof data['title'] !== 'undefined') {
+					$scope.showInfoBox(data.title);
+				}
+				else {
+					$scope.getLocationInfo(data.lat, data.lon, function(info){
+						$scope.showInfoBox(info);
+					});
+				}
+			}, 500);
+		};
+
+		$scope.showInfoBox = function(info){
+			$scope.infoBox.setContent('<a href="#" class="selectCityButton">' + info + '</a>');
+			$scope.infoBox.open($scope.map, $scope.marker);
+			$scope.infoBox.show();
+		};
+
+		$scope.getLocationInfo = function(lat, lon, callback){
+			var latlng = new google.maps.LatLng(lat, lon);
+			$scope.geocoder.geocode({'latLng': latlng}, function(results, status) {
+				if (status == google.maps.GeocoderStatus.OK) {
+					for (i in results) {
+						if (results[i].types.indexOf('political') !== -1) {
+							if ($scope.map.zoom <= 6) {
+								if (results[i].types.indexOf('country') !== -1) {
+									callback(results[i].formatted_address);
+									break;
+								}
+							}
+							else {
+								callback(results[i].formatted_address);
+								break;
+							}
+						}
+					}
+				}
+			});
+		};
+
+		$scope.cleanupMarker = function(){
+			$scope.marker.setMap(null);
+			$scope.infoBox.hide();
+		};
+
+		google.maps.event.addListener($scope.map, 'dragstart', function () {
+			$scope.cleanupMarker();
+		});
+
+		google.maps.event.addListener($scope.map, 'dragend', function () {
+			$timeout.cancel($scope.positionChangeRemarkerTimeout);
+			$scope.positionChangeRemarkerTimeout = $timeout($scope.createMapCenterMarker, 300);
+		});
+
+		google.maps.event.addListener($scope.map, 'zoom_changed', function () {
+			$scope.country_selection = ($scope.map.zoom <= 6);
+			$timeout.cancel($scope.zoomChangeRemarkerTimeout);
+			$scope.zoomChangeRemarkerTimeout = $timeout($scope.createMapCenterMarker, 500);
+		});
+
+		$scope.autocomplete = new google.maps.places.Autocomplete(document.getElementById('search_field'), {
+			types: ['(regions)']
+		});
+
+		google.maps.event.addListener($scope.autocomplete, 'place_changed', function(){
+			var place = $scope.autocomplete.getPlace();
+			if (place.geometry) {
+				$scope.country_selection = (place.types.indexOf('country') !== -1);
+
+				$scope.map.panTo(place.geometry.location);
+				$scope.map.setZoom($scope.country_selection ? 5 : 10);
+				$scope.createMarker({
+					title: place.formatted_address,
+					lat: place.geometry.location.lat(),
+					lon: place.geometry.location.lng()
+				});
+
+				document.getElementById('search_field').value = '';
+			}
+		});
+
+		// Initial point
+		$scope.createMarker({
+			lat: $scope.lat,
+			lon: $scope.lon
+		});
+	});
+	//]]>
+	</script>
+</head>
+<body>
+<div ng-app="mapsApp" ng-controller="MapCtrl">
+	<input type="text" id="search_field" />
+	<div id="map"></div>
+</div>
+</body>
+</html>
+
